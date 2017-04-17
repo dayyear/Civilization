@@ -1,2 +1,2 @@
 # Civilization
-login weibo.com
+login and forward weibo.com Edit
