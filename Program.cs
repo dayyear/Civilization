@@ -15,11 +15,11 @@ namespace Civilization
             var web = new Web();
 
             Console.Write("username:");
-            var username = "15589559@qq.com";//Console.ReadLine();
+            var username = Console.ReadLine();
             web.PreLogin(username);
 
             Console.Write("password:");
-            var password = "orange1234";// Console.ReadLine();
+            var password = Console.ReadLine();
             web.Login(password);
 
             web.Zgwmw();

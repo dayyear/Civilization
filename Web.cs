@@ -147,32 +147,19 @@ public class Web
         var pattern = @"mid=(?<mid>\d*)&name";
         var match = Regex.Match(response, pattern);
         if (!match.Success) throw new Exception("zgwmw 匹配失败");
-        match = match.NextMatch();
+        //match = match.NextMatch();
         var mid = match.Groups["mid"].Value;
 
-        // 2. watermark
-        var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
-        // /aj/account/watermark?ajwvr=6&_t=0&__rnd=1492418715443
-        uri = string.Format("http://weibo.com/aj/account/watermark?ajwvr=6&_t=0&__rnd={0}", rand);
-        Thread.Sleep(2000); response = Get(uri);
-        File.WriteAllText("watermark.htm", response);
 
-        rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
-        // /aj/v6/mblog/repost/small?ajwvr=6&mid=4097477676382817&d_expanded=on&expanded_status=1&__rnd=1492418715457
-        uri = string.Format("http://weibo.com/aj/v6/mblog/repost/small?ajwvr=6&mid={0}&d_expanded=on&expanded_status=1&__rnd={1}", mid, rand);
-        Thread.Sleep(2000); response = Get(uri);
-        File.WriteAllText("small.htm", response);
-
+        // 2. forward
         var domain = "100106";
-        rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
-        // /aj/v6/mblog/forward?ajwvr=6&domain=100106&__rnd=1492418720946
+        var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
         uri = string.Format("http://weibo.com/aj/v6/mblog/forward?ajwvr=6&domain={0}&__rnd={1}", domain, rand);
         var location = "page_100106_home";
         var pdetail = "1001062119628851";
-        // pic_src=&pic_id=&appkey=&mid=4097477676382817&style_type=1&mark=&reason=%E8%BD%AC%E5%8F%91%E5%BE%AE%E5%8D%9A&location=page_100106_home&pdetail=1001062119628851&module=&page_module_id=&refer_sort=&rank=0&rankid=&_t=0
         var postString = string.Format("pic_src=&pic_id=&appkey=&mid={0}&style_type=1&mark=&reason=%E8%BD%AC%E5%8F%91%E5%BE%AE%E5%8D%9A&location={1}&pdetail={2}&module=&page_module_id=&refer_sort=&rank=0&rankid=&_t=0",
             mid, HttpUtility.UrlEncode(location), pdetail);
-        Thread.Sleep(2000); response = PostJson(uri, postString);
+        Thread.Sleep(2000); response = PostZgwmw(uri, postString);
         File.WriteAllText("forward.htm", response);
     }//Zgwmw
 
@@ -262,7 +249,7 @@ public class Web
         return responseString;
     } //Post
 
-    private string PostJson(string uri, string postString, string encoding = null)
+    private string PostZgwmw(string uri, string postString, string encoding = null)
     {
         string responseString;
 
@@ -274,7 +261,7 @@ public class Web
         var postByte = Encoding.UTF8.GetBytes(postString);
         request.Method = "POST";
         request.ContentType = "application/x-www-form-urlencoded";
-        request.Headers.Add("X-Requested-With", "XMLHttpRequest");
+        request.Referer = "http://weibo.com/zgwmw?from=myfollow_all&is_all=1";
         request.ContentLength = postByte.Length;
         using (var stream = request.GetRequestStream())
             stream.Write(postByte, 0, postByte.Length);
