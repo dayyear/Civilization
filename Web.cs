@@ -1,44 +1,16 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Security.Cryptography;
 using System.Text;
-using System.Web;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Web;
 
-
-public class Web
+namespace Civilization
 {
-    private readonly CookieContainer cookie;
-    private const int timeout = 60000;
-
-    private string su;
-
-    private string retcode;
-    private string servertime;
-    private string pcid;
-    private string nonce;
-    private string pubkey;
-    private string rsakv;
-    private string is_openlock;
-    private string showpin;
-    private string exectime;
-
-    private string uniqueid;
-    private string userdomain;
-
-    public Web()
-    {
-        cookie = new CookieContainer();
-    }
-
-    public Web(string file)
-    {
-        cookie = ReadCookiesFromDisk(file);
-    }//Web
-
     /// <summary>
     /// 时间戳转DateTime
     /// new DateTime(1970,1,1,0,0,0,0,System.DateTimeKind.Utc).AddSeconds( 1492392740D ).ToLocalTime()          -->  2017/4/17 星期一 上午 9:32:20
@@ -47,276 +19,291 @@ public class Web
     /// (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds          -->  1492392740
     /// (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds     -->  1492392764559
     /// </summary>
-    /// <param name="username"></param>
-    public void PreLogin(string username)
+    public class Web
     {
-        // ReSharper disable once AssignNullToNotNullAttribute
-        su = Convert.ToBase64String(Encoding.UTF8.GetBytes(HttpUtility.UrlEncode(username)));
+        private readonly CookieContainer cookie;
+        private readonly string cookieFile;
+        private const int timeout = 60000;
 
-        var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
-        var uri = string.Format("https://login.sina.com.cn/sso/prelogin.php?entry=weibo&callback=sinaSSOController.preloginCallBack&su={0}&rsakt=mod&checkpin=1&client=ssologin.js(v1.4.18)&_={1}",
-            HttpUtility.UrlEncode(su), rand);
-        var response = Get(uri);
-        File.WriteAllText("prelogin.htm", response);
+        private string su;
+        private string servertime;
+        private string nonce;
+        private string pubkey;
+        private string rsakv;
+        private string uniqueid;
 
-        var pattern = @"sinaSSOController.preloginCallBack\({""retcode"":(?<retcode>.+?),""servertime"":(?<servertime>.+?),""pcid"":""(?<pcid>.+?)"",""nonce"":""(?<nonce>.+?)"",""pubkey"":""(?<pubkey>.+?)"",""rsakv"":""(?<rsakv>.+?)"",""is_openlock"":(?<is_openlock>.+?),""showpin"":(?<showpin>.+?),""exectime"":(?<exectime>.+?)}\)";
-        var match = Regex.Match(response, pattern);
-        if (!match.Success) throw new Exception("prelogin 匹配失败");
-
-
-        retcode = match.Groups["retcode"].Value;
-        servertime = match.Groups["servertime"].Value;
-        pcid = match.Groups["pcid"].Value;
-        nonce = match.Groups["nonce"].Value;
-        pubkey = match.Groups["pubkey"].Value;
-        rsakv = match.Groups["rsakv"].Value;
-        is_openlock = match.Groups["is_openlock"].Value;
-        showpin = match.Groups["showpin"].Value;
-        exectime = match.Groups["exectime"].Value;
-
-        Console.WriteLine("showpin: {0}", showpin);
-    }//PreLogin
-
-    /// <summary>
-    /// post_data = {
-    ///     "entry": "weibo",
-    ///     "gateway": "1",
-    ///     "from": "",
-    ///     "savestate": "7",
-    ///     "userticket": "1",
-    ///     "vsnf": "1",
-    ///     "service": "miniblog",
-    ///     "encoding": "UTF-8",
-    ///     "pwencode": "rsa2",
-    ///     "sr": "1280*800",
-    ///     "prelt": "529",
-    ///     "url": "http://weibo.com/ajaxlogin.php?framelogin=1&callback=parent.sinaSSOController.feedBackUrlCallBack",
-    ///     "rsakv": json_data["rsakv"],
-    ///     "servertime": json_data["servertime"],
-    ///     "nonce": json_data["nonce"],
-    ///     "su": s_user_name,
-    ///     "sp": s_pass_word,
-    ///     "returntype": "TEXT",
-    /// }
-    /// 
-    /// # login weibo.com
-    /// login_url_1 = "http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)&_=%d" % int(time.time())
-    /// json_data_1 = self.session.post(login_url_1, data=post_data).json()
-    /// </summary>
-    /// <param name="password"></param>
-    public void Login(string password)
-    {
-        // 1. 加密password
-        var sp = GetPassword(password);
-
-        // 2. login.php
-        var uri = "http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)";
-        var postString = string.Format("entry=weibo&gateway=1&from=&savestate=7&useticket=1&pagerefer=&vsnf=1&su={0}&service=miniblog&servertime={1}&nonce={2}&pwencode=rsa2&rsakv={3}&sp={4}&sr=1920*1080&encoding=UTF-8&prelt=54&url=http%3A%2F%2Fweibo.com%2Fajaxlogin.php%3Fframelogin%3D1%26callback%3Dparent.sinaSSOController.feedBackUrlCallBack&returntype=META",
-            HttpUtility.UrlEncode(su), servertime, nonce, rsakv, sp);
-        var response = Post(uri, postString, "GBK");
-        File.WriteAllText("login.htm", response, Encoding.GetEncoding("GBK"));
-
-        var pattern = @"location.replace\('(.+?)'\)";
-        var match = Regex.Match(response, pattern);
-        if (!match.Success) throw new Exception("login 匹配失败");
-
-        // 3. login, ajaxlogin.php
-        uri = match.Groups[1].Value;
-        response = Get(uri);
-        File.WriteAllText("ajaxlogin.htm", response);
-
-        pattern = "{\"uniqueid\":\"(?<uniqueid>.+?)\",\"userid\":.+?,\"displayname\":.+?,\"userdomain\":\"(?<userdomain>.+?)\"}";
-        match = Regex.Match(response, pattern);
-        if (!match.Success) throw new Exception("ajaxlogin 匹配失败");
-        uniqueid = match.Groups["uniqueid"].Value;
-        userdomain = match.Groups["userdomain"].Value;
-
-        // 4. home
-        //uri = string.Format("http://weibo.com/u/{0}/home{1}", uniqueid, userdomain);
-        //response = Get(uri);
-        //File.WriteAllText("home.htm", response);
-    }//Login
-
-    public void Zgwmw()
-    {
-        // 1. zgwmw
-        var uri = "http://weibo.com/zgwmw?from=myfollow_all&is_all=1";
-        Thread.Sleep(2000); var response = Get(uri);
-        File.WriteAllText("zgwmw.htm", response);
-
-        var pattern = @"mid=(?<mid>\d*)&name";
-        var match = Regex.Match(response, pattern);
-        if (!match.Success) throw new Exception("zgwmw 匹配失败");
-        //match = match.NextMatch();
-        var mid = match.Groups["mid"].Value;
-
-
-        // 2. forward
-        var domain = "100106";
-        var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
-        uri = string.Format("http://weibo.com/aj/v6/mblog/forward?ajwvr=6&domain={0}&__rnd={1}", domain, rand);
-        var location = "page_100106_home";
-        var pdetail = "1001062119628851";
-        var postString = string.Format("pic_src=&pic_id=&appkey=&mid={0}&style_type=1&mark=&reason=%E8%BD%AC%E5%8F%91%E5%BE%AE%E5%8D%9A&location={1}&pdetail={2}&module=&page_module_id=&refer_sort=&rank=0&rankid=&_t=0",
-            mid, HttpUtility.UrlEncode(location), pdetail);
-        Thread.Sleep(2000); response = PostZgwmw(uri, postString);
-        File.WriteAllText("forward.htm", response);
-    }//Zgwmw
-
-    /// <summary>
-    /// string = (str(servertime) + "\t" + str(nonce) + "\n" + str(self.pass_word)).encode("utf-8")
-    /// public_key = rsa.PublicKey(int(pubkey, 16), int("10001", 16))
-    /// password = rsa.encrypt(string, public_key)
-    /// password = binascii.b2a_hex(password)
-    /// return password.decode()
-    /// </summary>
-    /// <param name="password"></param>
-    /// <returns></returns>
-    private string GetPassword(string password)
-    {
-        var message = Encoding.UTF8.GetBytes(servertime + "\t" + nonce + "\n" + password);
-
-        var modulus = new byte[pubkey.Length / 2];
-        var exponent = new byte[] { 1, 0, 1 };
-        for (var i = 0; i < modulus.Length; i++)
-            modulus[i] = Convert.ToByte(pubkey.Substring(i * 2, 2), 16);
-
-        byte[] encryptedBytes;
-        using (var rsa = new RSACryptoServiceProvider())
+        public Web()
         {
-            var rsaKeyInfo = new RSAParameters { Modulus = modulus, Exponent = exponent };
-            rsa.ImportParameters(rsaKeyInfo);
-            encryptedBytes = rsa.Encrypt(message, false);
-        }//RSA
-
-        var sb = new StringBuilder();
-        foreach (var b in encryptedBytes)
-            sb.Append(b.ToString("x2"));
-
-        return sb.ToString();
-    }//GetPassword
-
-    private string Get(string uri, string encoding = null)
-    {
-        string responseString;
-
-        var request = (HttpWebRequest)WebRequest.Create(uri);
-        request.CookieContainer = cookie;
-        request.Timeout = timeout;
-
-        using (var response = (HttpWebResponse)request.GetResponse())
-        using (var stream = response.GetResponseStream())
-        {
-            if (stream == null)
-                throw new ArgumentException("[stream] is null");
-            if (response.CharacterSet == null)
-                throw new ArgumentException("[response.CharacterSet] is null");
-            using (var sr = new StreamReader(stream, Encoding.GetEncoding(encoding ?? response.CharacterSet)))
-                responseString = sr.ReadToEnd();
+            cookieFile = "cookie";
+            cookie = new CookieContainer();
         }
 
-        return responseString;
-    } //Get
-
-    private string Post(string uri, string postString, string encoding = null)
-    {
-        string responseString;
-
-        var request = (HttpWebRequest)WebRequest.Create(uri);
-        request.CookieContainer = cookie;
-        request.Timeout = timeout;
-
-        // 设置POST数据
-        var postByte = Encoding.UTF8.GetBytes(postString);
-        request.Method = "POST";
-        request.ContentType = "application/x-www-form-urlencoded";
-        request.ContentLength = postByte.Length;
-        using (var stream = request.GetRequestStream())
-            stream.Write(postByte, 0, postByte.Length);
-
-        // 发送POST
-        using (var response = (HttpWebResponse)request.GetResponse())
-        using (var stream = response.GetResponseStream())
+        public Web(string cookieFile)
         {
-            if (stream == null)
-                throw new ArgumentException("[stream] is null");
-            if (response.CharacterSet == null)
-                throw new ArgumentException("[response.CharacterSet] is null");
-            using (var sr = new StreamReader(stream, Encoding.GetEncoding(encoding ?? response.CharacterSet)))
-                responseString = sr.ReadToEnd();
-        }
+            this.cookieFile = cookieFile;
+            cookie = ReadCookiesFromDisk(cookieFile);
+        }//Web
 
-        return responseString;
-    } //Post
-
-    private string PostZgwmw(string uri, string postString, string encoding = null)
-    {
-        string responseString;
-
-        var request = (HttpWebRequest)WebRequest.Create(uri);
-        request.CookieContainer = cookie;
-        request.Timeout = timeout;
-
-        // 设置POST数据
-        var postByte = Encoding.UTF8.GetBytes(postString);
-        request.Method = "POST";
-        request.ContentType = "application/x-www-form-urlencoded";
-        request.Referer = "http://weibo.com/zgwmw?from=myfollow_all&is_all=1";
-        request.ContentLength = postByte.Length;
-        using (var stream = request.GetRequestStream())
-            stream.Write(postByte, 0, postByte.Length);
-
-        // 发送POST
-        using (var response = (HttpWebResponse)request.GetResponse())
-        using (var stream = response.GetResponseStream())
+        public string PreLogin(string username)
         {
-            if (stream == null)
-                throw new ArgumentException("[stream] is null");
-            if (response.CharacterSet == null)
-                throw new ArgumentException("[response.CharacterSet] is null");
-            using (var sr = new StreamReader(stream, Encoding.GetEncoding(encoding ?? response.CharacterSet)))
-                responseString = sr.ReadToEnd();
-        }
+            // 1. GET /sso/prelogin.php
+            su = Convert.ToBase64String(Encoding.UTF8.GetBytes(HttpUtility.UrlEncode(username)));
+            var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
+            var uri = string.Format("https://login.sina.com.cn/sso/prelogin.php?entry=weibo&callback=sinaSSOController.preloginCallBack&su={0}&rsakt=mod&checkpin=1&client=ssologin.js(v1.4.18)&_={1}",
+                HttpUtility.UrlEncode(su), rand);
+            Console.WriteLine("GET /sso/prelogin.php");
+            var response = Get(uri);
+            Thread.Sleep(1000);
+            File.WriteAllText("prelogin.htm", response);
 
-        return responseString;
-    } //PostJson
+            // 2. Obtain servertime, nonce, pubkey, rsakv and showpin
+            var pattern = @"sinaSSOController.preloginCallBack\({""retcode"":(?<retcode>.+?),""servertime"":(?<servertime>.+?),""pcid"":""(?<pcid>.+?)"",""nonce"":""(?<nonce>.+?)"",""pubkey"":""(?<pubkey>.+?)"",""rsakv"":""(?<rsakv>.+?)"",""is_openlock"":(?<is_openlock>.+?),""showpin"":(?<showpin>.+?),""exectime"":(?<exectime>.+?)}\)";
+            var match = Regex.Match(response, pattern);
+            if (!match.Success)
+                throw new Exception("prelogin 匹配失败");
+            servertime = match.Groups["servertime"].Value;
+            nonce = match.Groups["nonce"].Value;
+            pubkey = match.Groups["pubkey"].Value;
+            rsakv = match.Groups["rsakv"].Value;
+            var showpin = match.Groups["showpin"].Value;
+            Console.WriteLine("showpin: {0}", showpin);
 
-    // ReSharper disable once UnusedMember.Local
-    private void WriteCookiesToDisk(string file, CookieContainer cookieJar)
-    {
-        using (var stream = File.Create(file))
+            return showpin;
+        }//PreLogin
+
+        public void Login(string password)
+        {
+            // 1. 加密password
+            var sp = GetPassword(password);
+
+            // 2. login.php
+            var uri = "http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)";
+            var postString = string.Format("entry=weibo&gateway=1&from=&savestate=7&useticket=1&pagerefer=&vsnf=1&su={0}&service=miniblog&servertime={1}&nonce={2}&pwencode=rsa2&rsakv={3}&sp={4}&sr=1920*1080&encoding=UTF-8&prelt=54&url=http%3A%2F%2Fweibo.com%2Fajaxlogin.php%3Fframelogin%3D1%26callback%3Dparent.sinaSSOController.feedBackUrlCallBack&returntype=META",
+                HttpUtility.UrlEncode(su), servertime, nonce, rsakv, sp);
+            Console.WriteLine("POST /sso/login.php");
+            var response = Post(uri, postString, "GBK");
+            Thread.Sleep(1000);
+            File.WriteAllText("login.htm", response, Encoding.GetEncoding("GBK"));
+
+            var pattern = @"location.replace\('(?<uri>.+?)'\)";
+            var match = Regex.Match(response, pattern);
+            if (!match.Success)
+                throw new Exception("login 匹配失败");
+            uri = match.Groups["uri"].Value;
+
+            // 3. login, ajaxlogin.php
+            Console.WriteLine("GET /wbsso/login");
+            Console.WriteLine("GET /ajaxlogin.php");
+            response = Get(uri);
+            Thread.Sleep(1000);
+            File.WriteAllText("ajaxlogin.htm", response);
+
+            pattern = "{\"uniqueid\":\"(?<uniqueid>.+?)\",\"userid\":.+?,\"displayname\":.+?,\"userdomain\":\"(?<userdomain>.+?)\"}";
+            match = Regex.Match(response, pattern);
+            if (!match.Success)
+                throw new Exception("ajaxlogin 匹配失败");
+            uniqueid = match.Groups["uniqueid"].Value;
+        }//Login
+
+        public void Zgwmw()
+        {
+            // 1. zgwmw
+            var uri = "http://weibo.com/zgwmw?from=myfollow_all&is_all=1";
+            Console.WriteLine("GET /zgwmw");
+            var response = Get(uri);
+            Thread.Sleep(1000);
+            File.WriteAllText("zgwmw.htm", response);
+
+            var pattern = @"mid=(?<mid>\d*)&name";
+            var matches = Regex.Matches(response, pattern);
+            if (matches.Count <= 0)
+                throw new Exception("zgwmw 匹配失败");
+            var midList = (from Match match in matches select match.Groups["mid"].Value).ToList();
+
+            // 2. profile
+            uri = string.Format("http://weibo.com/{0}/profile?rightmod=1&wvr=6&mod=personnumber&is_all=1", uniqueid);
+            Console.WriteLine("GET /{0}/profile", uniqueid);
+            response = Get(uri);
+            Thread.Sleep(1000);
+            File.WriteAllText("MyWeibo.htm", response);
+
+            // 3. forward
+            foreach (var mid in midList.Where(mid => !response.Contains(mid)))
+                Forward(mid);
+        }//Zgwmw
+
+        private void Forward(string mid)
+        {
+            var domain = "100106";
+            var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
+            var uri = string.Format("http://weibo.com/aj/v6/mblog/forward?ajwvr=6&domain={0}&__rnd={1}", domain, rand);
+            var location = "page_100106_home";
+            var pdetail = "1001062119628851";
+            var postString = string.Format("pic_src=&pic_id=&appkey=&mid={0}&style_type=1&mark=&reason=%E8%BD%AC%E5%8F%91%E5%BE%AE%E5%8D%9A&location={1}&pdetail={2}&module=&page_module_id=&refer_sort=&rank=0&rankid=&_t=0",
+                mid, HttpUtility.UrlEncode(location), pdetail);
+            Console.WriteLine("POST /aj/v6/mblog/forward: {0}", mid);
+            var response = PostZgwmw(uri, postString);
+            Thread.Sleep(10000);
+            File.WriteAllText(string.Format("forward{0}.htm", mid), response);
+        }//Forward
+
+        /// <summary>
+        /// string = (str(servertime) + "\t" + str(nonce) + "\n" + str(self.pass_word)).encode("utf-8")
+        /// public_key = rsa.PublicKey(int(pubkey, 16), int("10001", 16))
+        /// password = rsa.encrypt(string, public_key)
+        /// password = binascii.b2a_hex(password)
+        /// return password.decode()
+        /// </summary>
+        /// <param name="password"></param>
+        /// <returns></returns>
+        private string GetPassword(string password)
+        {
+            var message = Encoding.UTF8.GetBytes(servertime + "\t" + nonce + "\n" + password);
+
+            var modulus = new byte[pubkey.Length / 2];
+            var exponent = new byte[] { 1, 0, 1 };
+            for (var i = 0; i < modulus.Length; i++)
+                modulus[i] = Convert.ToByte(pubkey.Substring(i * 2, 2), 16);
+
+            byte[] encryptedBytes;
+            using (var rsa = new RSACryptoServiceProvider())
+            {
+                var rsaKeyInfo = new RSAParameters { Modulus = modulus, Exponent = exponent };
+                rsa.ImportParameters(rsaKeyInfo);
+                encryptedBytes = rsa.Encrypt(message, false);
+            }//RSA
+
+            var sb = new StringBuilder();
+            foreach (var b in encryptedBytes)
+                sb.Append(b.ToString("x2"));
+
+            return sb.ToString();
+        }//GetPassword
+
+        private string Get(string uri, string encoding = null)
+        {
+            string responseString;
+
+            var request = (HttpWebRequest)WebRequest.Create(uri);
+            request.CookieContainer = cookie;
+            request.Timeout = timeout;
+
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var stream = response.GetResponseStream())
+            {
+                if (stream == null)
+                    throw new ArgumentException("[stream] is null");
+                if (response.CharacterSet == null)
+                    throw new ArgumentException("[response.CharacterSet] is null");
+                using (var sr = new StreamReader(stream, Encoding.GetEncoding(encoding ?? response.CharacterSet)))
+                    responseString = sr.ReadToEnd();
+            }
+            WriteCookiesToDisk(cookieFile, cookie);
+
+            return responseString;
+        } //Get
+
+        private string Post(string uri, string postString, string encoding = null)
+        {
+            string responseString;
+
+            var request = (HttpWebRequest)WebRequest.Create(uri);
+            request.CookieContainer = cookie;
+            request.Timeout = timeout;
+
+            // 设置POST数据
+            var postByte = Encoding.UTF8.GetBytes(postString);
+            request.Method = "POST";
+            request.ContentType = "application/x-www-form-urlencoded";
+            request.ContentLength = postByte.Length;
+            using (var stream = request.GetRequestStream())
+                stream.Write(postByte, 0, postByte.Length);
+
+            // 发送POST
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var stream = response.GetResponseStream())
+            {
+                if (stream == null)
+                    throw new ArgumentException("[stream] is null");
+                if (response.CharacterSet == null)
+                    throw new ArgumentException("[response.CharacterSet] is null");
+                using (var sr = new StreamReader(stream, Encoding.GetEncoding(encoding ?? response.CharacterSet)))
+                    responseString = sr.ReadToEnd();
+            }
+            WriteCookiesToDisk(cookieFile, cookie);
+
+            return responseString;
+        } //Post
+
+        private string PostZgwmw(string uri, string postString, string encoding = null)
+        {
+            string responseString;
+
+            var request = (HttpWebRequest)WebRequest.Create(uri);
+            request.CookieContainer = cookie;
+            request.Timeout = timeout;
+
+            // 设置POST数据
+            var postByte = Encoding.UTF8.GetBytes(postString);
+            request.Method = "POST";
+            request.ContentType = "application/x-www-form-urlencoded";
+            request.Referer = "http://weibo.com/zgwmw?from=myfollow_all&is_all=1";
+            request.ContentLength = postByte.Length;
+            using (var stream = request.GetRequestStream())
+                stream.Write(postByte, 0, postByte.Length);
+
+            // 发送POST
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var stream = response.GetResponseStream())
+            {
+                if (stream == null)
+                    throw new ArgumentException("[stream] is null");
+                if (response.CharacterSet == null)
+                    throw new ArgumentException("[response.CharacterSet] is null");
+                using (var sr = new StreamReader(stream, Encoding.GetEncoding(encoding ?? response.CharacterSet)))
+                    responseString = sr.ReadToEnd();
+            }
+            WriteCookiesToDisk(cookieFile, cookie);
+
+            return responseString;
+        } //PostZgwmw
+
+        private static void WriteCookiesToDisk(string file, CookieContainer cookieJar)
+        {
+            using (var stream = File.Create(file))
+            {
+                try
+                {
+                    //Console.Out.Write("Writing cookies to disk... ");
+                    var formatter = new BinaryFormatter();
+                    formatter.Serialize(stream, cookieJar);
+                    //Console.Out.WriteLine("Done.");
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine("Problem writing cookies to disk: " + e.GetType());
+                }
+            }
+        }//WriteCookiesToDisk
+
+        private static CookieContainer ReadCookiesFromDisk(string file)
         {
             try
             {
-                Console.Out.Write("Writing cookies to disk... ");
-                var formatter = new BinaryFormatter();
-                formatter.Serialize(stream, cookieJar);
-                Console.Out.WriteLine("Done.");
+                using (Stream stream = File.Open(file, FileMode.Open))
+                {
+                    //Console.Out.Write("Reading cookies from disk... ");
+                    var formatter = new BinaryFormatter();
+                    //Console.Out.WriteLine("Done.");
+                    return (CookieContainer)formatter.Deserialize(stream);
+                }
             }
             catch (Exception e)
             {
-                Console.WriteLine("Problem writing cookies to disk: " + e.GetType());
+                Console.WriteLine("Problem reading cookies from disk: " + e.GetType());
+                return new CookieContainer();
             }
-        }
-    }//WriteCookiesToDisk
+        }//ReadCookiesFromDisk
 
-    private CookieContainer ReadCookiesFromDisk(string file)
-    {
-        try
-        {
-            using (Stream stream = File.Open(file, FileMode.Open))
-            {
-                Console.Out.Write("Reading cookies from disk... ");
-                BinaryFormatter formatter = new BinaryFormatter();
-                Console.Out.WriteLine("Done.");
-                return (CookieContainer)formatter.Deserialize(stream);
-            }
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine("Problem reading cookies from disk: " + e.GetType());
-            return new CookieContainer();
-        }
-    }//ReadCookiesFromDisk
-
-}//class
+    }//class
+}//namespace
