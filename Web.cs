@@ -30,7 +30,7 @@ namespace Civilization
         private string nonce;
         private string pubkey;
         private string rsakv;
-        private string uniqueid;
+        private string pcid;
 
         public Web()
         {
@@ -65,13 +65,27 @@ namespace Civilization
             nonce = match.Groups["nonce"].Value;
             pubkey = match.Groups["pubkey"].Value;
             rsakv = match.Groups["rsakv"].Value;
+            pcid = match.Groups["pcid"].Value;
             var showpin = match.Groups["showpin"].Value;
-            Console.WriteLine("showpin: {0}", showpin);
 
             return showpin;
         }//PreLogin
 
-        public void Login(string password)
+        public string Pin()
+        {
+            var rand = (long)DateTime.UtcNow.Subtract(new DateTime(1970, 1, 1)).TotalSeconds;
+            var uri = string.Format("http://login.sina.com.cn/cgi/pin.php?r={0}&s=0&p={1}",
+                rand, pcid);
+            Console.WriteLine("GET /cgi/pin.php");
+            var response = GetBytes(uri);
+            Thread.Sleep(1000);
+            var pinFile = "pin.bmp";
+            File.WriteAllBytes(pinFile, response);
+
+            return pinFile;
+        }//Pin
+
+        public void Login(string password, string door = null)
         {
             // 1. 加密password
             var sp = GetPassword(password);
@@ -80,6 +94,8 @@ namespace Civilization
             var uri = "http://login.sina.com.cn/sso/login.php?client=ssologin.js(v1.4.18)";
             var postString = string.Format("entry=weibo&gateway=1&from=&savestate=7&useticket=1&pagerefer=&vsnf=1&su={0}&service=miniblog&servertime={1}&nonce={2}&pwencode=rsa2&rsakv={3}&sp={4}&sr=1920*1080&encoding=UTF-8&prelt=54&url=http%3A%2F%2Fweibo.com%2Fajaxlogin.php%3Fframelogin%3D1%26callback%3Dparent.sinaSSOController.feedBackUrlCallBack&returntype=META",
                 HttpUtility.UrlEncode(su), servertime, nonce, rsakv, sp);
+            if (!string.IsNullOrWhiteSpace(door))
+                postString += string.Format("&pcid={0}&door={1}", pcid, door);
             Console.WriteLine("POST /sso/login.php");
             var response = Post(uri, postString, "GBK");
             Thread.Sleep(1000);
@@ -102,7 +118,6 @@ namespace Civilization
             match = Regex.Match(response, pattern);
             if (!match.Success)
                 throw new Exception("ajaxlogin 匹配失败");
-            uniqueid = match.Groups["uniqueid"].Value;
         }//Login
 
         public void Zgwmw()
@@ -114,15 +129,21 @@ namespace Civilization
             Thread.Sleep(1000);
             File.WriteAllText("zgwmw.htm", response);
 
-            var pattern = @"mid=(?<mid>\d*)&name";
+            var pattern = @"\$CONFIG\['uid'\]='(?<uid>\d*)';";
+            var match = Regex.Match(response, pattern);
+            if (!match.Success)
+                throw new Exception("uid 匹配失败");
+            var uid = match.Groups["uid"].Value;
+
+            pattern = @"mid=(?<mid>\d*)&name";
             var matches = Regex.Matches(response, pattern);
             if (matches.Count <= 0)
-                throw new Exception("zgwmw 匹配失败");
-            var midList = (from Match match in matches select match.Groups["mid"].Value).ToList();
+                throw new Exception("mid 匹配失败");
+            var midList = (from Match _match in matches select _match.Groups["mid"].Value).ToList();
 
             // 2. profile
-            uri = string.Format("http://weibo.com/{0}/profile?rightmod=1&wvr=6&mod=personnumber&is_all=1", uniqueid);
-            Console.WriteLine("GET /{0}/profile", uniqueid);
+            uri = string.Format("http://weibo.com/{0}/profile?rightmod=1&wvr=6&mod=personnumber&is_all=1", uid);
+            Console.WriteLine("GET /{0}/profile", uid);
             response = Get(uri);
             Thread.Sleep(1000);
             File.WriteAllText("MyWeibo.htm", response);
@@ -202,6 +223,35 @@ namespace Civilization
 
             return responseString;
         } //Get
+
+        private byte[] GetBytes(string uri)
+        {
+            byte[] responseBytes;
+            var buffer = new byte[4096];
+
+            var request = (HttpWebRequest)WebRequest.Create(uri);
+            request.CookieContainer = cookie;
+            request.Timeout = timeout;
+
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var stream = response.GetResponseStream())
+            using (var ms = new MemoryStream())
+            {
+                if (stream == null)
+                    throw new ArgumentException("[stream] is null");
+                var count = 0;
+                do
+                {
+                    count = stream.Read(buffer, 0, buffer.Length);
+                    ms.Write(buffer, 0, count);
+
+                } while (count != 0);
+                responseBytes = ms.ToArray();
+            }
+            WriteCookiesToDisk(cookieFile, cookie);
+
+            return responseBytes;
+        } //GetBytes
 
         private string Post(string uri, string postString, string encoding = null)
         {
